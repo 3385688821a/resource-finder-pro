@@ -1,0 +1,18 @@
+name: ResourceFinderPro
+options:
+  bundleIdPrefix: com.resourcefinderpro
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  ResourceFinderPro:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.resourcefinderpro.app
+        PRODUCT_NAME: ResourceFinderPro
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
