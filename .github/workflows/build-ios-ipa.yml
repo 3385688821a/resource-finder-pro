@@ -1,0 +1,100 @@
+name: Build Resource Finder iOS IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_finder_url:
+        description: "已部署的 Resource Finder 后端 HTTPS 地址（例如 https://your-service.onrender.com）"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate backend URL
+        env:
+          RESOURCE_FINDER_URL: ${{ inputs.resource_finder_url }}
+        run: |
+          node -e "const u=new URL(process.env.RESOURCE_FINDER_URL); if(u.protocol!=='https:') throw new Error('必须使用 HTTPS 地址'); if(u.hostname.includes('example')) throw new Error('请填写真实部署域名');"
+
+      - name: Extract iOS project package
+        run: |
+          unzip -q resource_finder_pro_2.0_ios.zip -d package
+          test -f package/ios-wrapper/package.json
+          test -f package/ios-wrapper/capacitor.config.ts
+          test -f package/ios-wrapper/www/index.html
+
+      - name: Configure Capacitor remote backend
+        working-directory: package/ios-wrapper
+        env:
+          RESOURCE_FINDER_URL: ${{ inputs.resource_finder_url }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const u = new URL(process.env.RESOURCE_FINDER_URL);
+          const config = `import type { CapacitorConfig } from '@capacitor/cli';
+          const config: CapacitorConfig = {
+            appId: 'com.resourcefinder.app',
+            appName: '资源搜索',
+            webDir: 'www',
+            server: {
+              url: '${u.origin}',
+              cleartext: false,
+              allowNavigation: ['${u.hostname}']
+            },
+            ios: { contentInset: 'automatic', preferredContentMode: 'mobile' }
+          };
+          export default config;
+          `;
+          fs.writeFileSync('capacitor.config.ts', config);
+          NODE
+
+      - name: Install Node dependencies
+        working-directory: package/ios-wrapper
+        run: npm install
+
+      - name: Generate iOS project
+        working-directory: package/ios-wrapper
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Build unsigned iPhone app
+        working-directory: package/ios-wrapper
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package unsigned IPA
+        working-directory: package/ios-wrapper
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/App.app"
+          test -d "$APP_PATH"
+          mkdir -p ipa/Payload
+          cp -R "$APP_PATH" ipa/Payload/App.app
+          cd ipa
+          zip -qr ../ResourceFinderPro-unsigned.ipa Payload
+          cd ..
+          ls -lh ResourceFinderPro-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ResourceFinderPro-unsigned-IPA
+          path: package/ios-wrapper/ResourceFinderPro-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
